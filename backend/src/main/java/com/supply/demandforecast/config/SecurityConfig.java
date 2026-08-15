@@ -1,13 +1,14 @@
 package com.supply.demandforecast.config;
 
 import com.supply.demandforecast.domain.Role;
+import com.supply.demandforecast.security.ApiAccessDeniedHandler;
 import com.supply.demandforecast.security.JwtAuthenticationFilter;
 import com.supply.demandforecast.security.JwtProperties;
+import jakarta.servlet.DispatcherType;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchyImpl;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -16,7 +17,6 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 /**
@@ -54,13 +54,23 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
-                                                   JwtAuthenticationFilter jwtFilter)
+                                                   JwtAuthenticationFilter jwtFilter,
+                                                   ApiAccessDeniedHandler deniedHandler)
             throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // The container's own error rendering, not a request a client made.
+                        // Authorization was already decided on the dispatch that led here, so
+                        // deciding again can only contradict it — and would, because nothing
+                        // in a stateless application carries the caller into an ERROR dispatch.
+                        // Matched by dispatcher type rather than by the "/error" path so that
+                        // it covers every verb: as a GET-only path rule it silently turned a
+                        // refused POST into a 401.
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+
                         // Open: liveness and login. Nothing else.
                         .requestMatchers("/api/health", "/actuator/health/**", "/actuator/info")
                                 .permitAll()
@@ -74,7 +84,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET,
                                 "/", "/index.html", "/*.html",
                                 "/css/**", "/js/**", "/vendor/**",
-                                "/favicon.ico", "/error").permitAll()
+                                "/favicon.ico").permitAll()
 
                         // ADMIN only: managing accounts, and every data upload.
                         .requestMatchers("/api/users/**").hasRole(Role.ADMIN.name())
@@ -103,10 +113,10 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .exceptionHandling(handling -> handling
-                        // 401 with no WWW-Authenticate challenge: a browser credential popup
-                        // is useless for a token API and only confuses a fetch() caller.
-                        .authenticationEntryPoint(
-                                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
+                        // Both refusals are committed in the chain instead of being forwarded
+                        // to /error, so the status that was decided is the status that is sent.
+                        .authenticationEntryPoint(deniedHandler)
+                        .accessDeniedHandler(deniedHandler))
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

@@ -13,11 +13,14 @@ import com.supply.demandforecast.dto.RiskScanResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClient.RequestHeadersSpec.ConvertibleClientHttpResponse;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -130,8 +133,8 @@ public class MlServiceClient {
         T response = withRetries(() -> restClient.post()
                 .uri(path)
                 .body(body)
-                .retrieve()
-                .body(responseType), description);
+                .exchange((request, clientResponse) ->
+                        readSuccessfulBody(clientResponse, responseType, description)), description);
 
         if (response == null) {
             // A 200 with no body is a broken contract, not an empty result. Returning
@@ -139,6 +142,59 @@ public class MlServiceClient {
             throw new MlServiceException("ML service returned an empty body for " + description);
         }
         return response;
+    }
+
+    /**
+     * Returns the deserialized body of a successful response, or throws with the upstream
+     * status and body attached.
+     *
+     * <p>The status has to be checked before the body is read, because these response
+     * shapes are deserialized leniently — unknown fields are ignored so the ML service can
+     * add some without breaking this client. That tolerance cuts both ways: FastAPI's
+     * error shape, {@code {"detail": [...]}}, has no field in common with a
+     * {@code ForecastResponse}, so it does not fail to bind. It quietly produces a record
+     * with every component null, which reads downstream as a real forecast that happens to
+     * be empty, and a rejected request is then served to the caller as {@code 200 OK}.
+     *
+     * <p>Checking here rather than relying on the {@code RestClient}'s status handler keeps
+     * the decision next to the code that depends on it. {@code exchange} bypasses those
+     * handlers entirely, so no amount of transport reconfiguration elsewhere can turn this
+     * check off.
+     */
+    private <T> T readSuccessfulBody(ConvertibleClientHttpResponse response, Class<T> responseType,
+                                     String description) throws IOException {
+        HttpStatusCode status = response.getStatusCode();
+        if (!status.isError()) {
+            return response.bodyTo(responseType);
+        }
+
+        String upstreamBody = readErrorBody(response);
+
+        if (status.is4xxClientError()) {
+            log.warn("ML service rejected {}: {} {}", description, status, describe(upstreamBody));
+            throw new MlServiceException(
+                    "ML service rejected the " + description + ": " + describe(upstreamBody),
+                    null, status, upstreamBody);
+        }
+
+        // 5xx: worth another attempt, so this leaves the retry decision to withRetries.
+        throw new MlServiceException(
+                "ML service failed the " + description + " with " + status,
+                null, status, upstreamBody);
+    }
+
+    /**
+     * Reads an error body as text, since it is a diagnostic rather than a payload to bind.
+     *
+     * <p>An unreadable error body must not replace the status code that explains the
+     * failure, so a read fault here is reported instead of thrown.
+     */
+    private static String readErrorBody(ConvertibleClientHttpResponse response) {
+        try (InputStream body = response.getBody()) {
+            return new String(body.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return "error body could not be read: " + e.getMessage();
+        }
     }
 
     /**
@@ -155,21 +211,15 @@ public class MlServiceClient {
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
                 return call.get();
-            } catch (HttpStatusCodeException e) {
-                HttpStatusCode status = e.getStatusCode();
-                String upstreamBody = e.getResponseBodyAsString();
-
-                if (status.is4xxClientError()) {
-                    log.warn("ML service rejected {}: {} {}", description, status, upstreamBody);
-                    throw new MlServiceException(
-                            "ML service rejected the " + description + ": " + describe(upstreamBody),
-                            e, status, upstreamBody);
+            } catch (MlServiceException e) {
+                // Already classified by readSuccessfulBody, which attached the status.
+                if (e.isUpstreamClientError()) {
+                    throw e;
                 }
 
-                last = new MlServiceException(
-                        "ML service failed the " + description + " with " + status,
-                        e, status, upstreamBody);
-                logRetry(attempt, description, status + " " + describe(upstreamBody));
+                last = e;
+                logRetry(attempt, description,
+                        e.getUpstreamStatus() + " " + describe(e.getUpstreamBody()));
             } catch (ResourceAccessException e) {
                 // Connect or read timeout: no response at all, so no upstream status.
                 last = new MlServiceException(

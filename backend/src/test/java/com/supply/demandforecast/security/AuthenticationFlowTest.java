@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -20,7 +21,10 @@ import org.springframework.test.web.servlet.RequestBuilder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -139,6 +143,59 @@ class AuthenticationFlowTest {
 
         mockMvc.perform(get("/api/users").header("Authorization", "Bearer " + token))
                 .andExpect(status().isForbidden());
+    }
+
+    /**
+     * A refused write is 403, not 401.
+     *
+     * <p>Worth stating per verb, because the two are decided by different handlers and the
+     * difference is not cosmetic: 401 tells a caller to authenticate, which they already did,
+     * and no amount of logging in again will grant a role they do not have.
+     *
+     * <p>These assertions cannot fail here for the reason they once failed in production.
+     * The 403 was being lost to the container's {@code ERROR} dispatch, and {@code MockMvc}
+     * does not perform one — it returns the status the chain set. Real HTTP is what caught
+     * that, and {@code scripts/verify-dashboard.sh} is where it stays caught.
+     */
+    @Test
+    void refusedWritesAreForbiddenRatherThanUnauthorized() throws Exception {
+        String viewer = tokenFor("viewer");
+
+        mockMvc.perform(post("/api/inventory/scan").header("Authorization", "Bearer " + viewer))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(patch("/api/alerts/1/resolve").header("Authorization", "Bearer " + viewer))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(multipart("/api/products/import")
+                        .file(new MockMultipartFile("file", "p.csv", "text/csv", "sku\n".getBytes()))
+                        .header("Authorization", "Bearer " + tokenFor("manager")))
+                .andExpect(status().isForbidden());
+    }
+
+    /**
+     * Both refusals carry the {@code ProblemDetail} body the dashboard reads.
+     *
+     * <p>They are produced above the {@code DispatcherServlet}, so {@code
+     * GlobalExceptionHandler} never sees them — without their own handler they arrive empty
+     * and the UI can only print the bare status.
+     */
+    @Test
+    void refusalsCarryAProblemDetailTheDashboardCanShow() throws Exception {
+        mockMvc.perform(get("/api/products"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.detail").isNotEmpty());
+
+        mockMvc.perform(get("/api/users").header("Authorization", "Bearer " + tokenFor("viewer")))
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.title").value("Forbidden"))
+                // Names no required role: that is a hint to someone already refused.
+                .andExpect(jsonPath("$.detail").value("Your role does not permit this operation"));
     }
 
     @Test
