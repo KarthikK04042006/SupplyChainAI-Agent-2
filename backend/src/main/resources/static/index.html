@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Supply Forecast</title>
+  <!--
+    A redirect shim, not a page. Kept as HTML with a script rather than a server-side redirect
+    because the decision depends on sessionStorage, which only the browser can see.
+  -->
+  <script>
+    window.location.replace(sessionStorage.getItem('sf.token') ? 'overview.html' : 'login.html');
+  </script>
+  <!--
+    Inside <noscript> deliberately. Unconditionally, this meta races the script above: the parser
+    reaches it while the replace() navigation is still settling, and a signed-in user on their way
+    to overview.html can be sent to login.html instead. It only exists for the case where the
+    script cannot run, which is what <noscript> means.
+  -->
+  <noscript>
+    <meta http-equiv="refresh" content="0; url=login.html">
+  </noscript>
+</head>
+<body>
+  <p>Redirecting to <a href="login.html">the sign-in page</a>.</p>
+</body>
+</html>

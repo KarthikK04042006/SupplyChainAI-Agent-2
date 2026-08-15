@@ -1,0 +1,173 @@
+/* Page styling on top of Bootstrap. Only what the vendor CSS does not already give us. */
+
+body {
+  background-color: #f6f7f9;
+}
+
+main {
+  padding-bottom: 3rem;
+}
+
+.kpi-card .kpi-value {
+  font-size: 1.9rem;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+/* The sample size under each KPI figure. Deliberately quiet: it qualifies the number without
+   competing with it. */
+.kpi-card .kpi-note {
+  font-size: 0.8rem;
+  color: #6c757d;
+}
+
+/* Severity shows as a left border rather than a filled row: an operator scans the column edge for
+   colour, and a fully tinted row makes the message text harder to read. */
+.alert-row {
+  border-left: 4px solid transparent;
+}
+
+.alert-row.sev-CRITICAL { border-left-color: var(--bs-danger); }
+.alert-row.sev-HIGH { border-left-color: var(--bs-warning); }
+.alert-row.sev-MEDIUM { border-left-color: var(--bs-info); }
+.alert-row.sev-LOW { border-left-color: var(--bs-secondary); }
+
+/* Heatmap ------------------------------------------------------------------ */
+
+.heatmap {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* The SKU column stays put while the warehouse columns scroll, so a wide network keeps its row
+   labels. Needs the wrapper to be .table-responsive for the horizontal scroll to exist. */
+.heatmap th.sticky-col,
+.heatmap td.sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background-color: #fff;
+  border-right: 1px solid var(--bs-border-color);
+}
+
+.heatmap thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background-color: #fff;
+}
+
+.heatmap thead th.sticky-col {
+  z-index: 4;
+}
+
+.heatmap td.cell {
+  text-align: right;
+  white-space: nowrap;
+  min-width: 6.5rem;
+}
+
+/* Cell colours are tints, not the solid alert palette: the status is derived here by allocating
+   demand, not returned by the ML risk scan, and it should not read as the same claim. The page
+   legend says so in words. */
+.cell-STOCKOUT_RISK { background-color: #f8d7da; }
+.cell-OVERSTOCK { background-color: #fff3cd; }
+.cell-OK { background-color: #d1e7dd; }
+.cell-UNKNOWN { background-color: #f1f3f5; color: #6c757d; }
+.cell-empty { background-color: transparent; color: #adb5bd; }
+
+.cell-days {
+  display: block;
+  font-size: 0.72rem;
+  color: #495057;
+}
+
+.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sortable::after {
+  content: '\2195';
+  opacity: 0.3;
+  margin-left: 0.25rem;
+}
+
+.sortable.asc::after { content: '\2191'; opacity: 0.9; }
+.sortable.desc::after { content: '\2193'; opacity: 0.9; }
+
+/* Upload ------------------------------------------------------------------- */
+
+.drop-zone {
+  border: 2px dashed var(--bs-border-color);
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  text-align: center;
+  transition: border-color 0.15s ease-in-out, background-color 0.15s ease-in-out;
+}
+
+.drop-zone.dragover {
+  border-color: var(--bs-primary);
+  background-color: #eef4ff;
+}
+
+/* Rejected rows are shown in full and scrolled rather than truncated: the row numbers are the
+   thing an operator needs to fix the file. */
+.error-list {
+  max-height: 16rem;
+  overflow-y: auto;
+  font-family: var(--bs-font-monospace);
+  font-size: 0.8rem;
+}
+
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
+
+/* Product detail ----------------------------------------------------------- */
+
+/* Chart.js with maintainAspectRatio:false sizes itself to its parent, so the parent needs a
+   height of its own. Without one the canvas grows a little on every resize. */
+.chart-wrap {
+  position: relative;
+  height: 22rem;
+}
+
+@media (max-width: 575.98px) {
+  .chart-wrap {
+    height: 16rem;
+  }
+}
+
+.shap-bar {
+  height: 0.75rem;
+  border-radius: 0.25rem;
+}
+
+/* SHAP bars grow from a shared centre line so increases and decreases are comparable at a
+   glance — the sign is the first thing being read, the magnitude second. */
+.shap-track {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.shap-half {
+  flex: 1 1 50%;
+  display: flex;
+}
+
+.shap-half.negative {
+  justify-content: flex-end;
+}
+
+/* Each step of the reorder calculation with the formula that produced it. Monospace on the
+   formula only: it is the part being read as an expression rather than as prose. */
+.formula {
+  font-family: var(--bs-font-monospace);
+  font-size: 0.75rem;
+  color: #495057;
+  word-break: break-word;
+}

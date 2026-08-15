@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in — Supply Forecast</title>
+  <link rel="stylesheet" href="vendor/bootstrap.min.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <main class="login-shell">
+    <div class="card shadow-sm" style="width: min(26rem, 92vw);">
+      <div class="card-body p-4">
+        <h1 class="h4 mb-1">Supply Forecast</h1>
+        <p class="text-body-secondary small mb-4">Sign in to view the inventory dashboard.</p>
+
+        <div id="message"></div>
+
+        <form id="loginForm" novalidate>
+          <div class="mb-3">
+            <label for="username" class="form-label">Username</label>
+            <input type="text" class="form-control" id="username" name="username"
+                   autocomplete="username" required autofocus>
+          </div>
+          <div class="mb-3">
+            <label for="password" class="form-label">Password</label>
+            <input type="password" class="form-control" id="password" name="password"
+                   autocomplete="current-password" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100" id="submit">
+            <span class="spinner-border spinner-border-sm d-none" id="spinner"
+                  role="status" aria-hidden="true"></span>
+            Sign in
+          </button>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <script src="vendor/bootstrap.bundle.min.js"></script>
+  <script type="module" src="js/login.js"></script>
+</body>
+</html>

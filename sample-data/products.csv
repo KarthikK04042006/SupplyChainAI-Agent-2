@@ -1,0 +1,7 @@
+sku,name,category,lead_time_days,reorder_point,safety_stock,unit_cost
+WIDGET-001,"Widget, standard 10mm",Components,7,400,150,12.50
+GADGET-002,"Gadget Pro, boxed",Finished goods,14,900,320,48.00
+STAPLE-003,"Staple fastener, 50k box",Consumables,5,350,120,3.75
+SLOWMOVE-004,"Legacy bracket, service part",Spares,21,20,10,86.00
+NEWITEM-005,Sensor module v2,Components,10,80,40,
+SPARE-006,"Gasket set, no sales yet",Spares,30,15,5,22.40

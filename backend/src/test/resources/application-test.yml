@@ -1,0 +1,42 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;MODE=MySQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+    open-in-view: false
+
+ml:
+  service:
+    url: http://ml-service.invalid:8000
+    connect-timeout: 500
+    read-timeout: 1000
+    # Tests mock the client, so a retry here would only slow a failure down.
+    max-attempts: 1
+
+inventory:
+  scan:
+    # Off, so no background pass mutates the alert table mid-assertion. Tests call
+    # InventoryScanService directly or through the endpoint.
+    enabled: false
+    risk-threshold: 25.0
+
+security:
+  jwt:
+    # Fixed so tokens are reproducible across contexts within a run. Test-only value.
+    secret: test-secret-key-for-integration-tests-only-not-for-production
+    expiry-minutes: 60
+    issuer: demand-forecast
+    seed-admin-username: admin
+    seed-admin-password: test-admin-password
+
+logging:
+  level:
+    com.supply.demandforecast: DEBUG
+    org.springframework.security: INFO

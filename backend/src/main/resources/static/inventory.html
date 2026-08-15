@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inventory — Supply Forecast</title>
+  <link rel="stylesheet" href="vendor/bootstrap.min.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <main class="container-fluid py-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3">
+      <div>
+        <h1 class="h3 mb-0">Inventory by warehouse</h1>
+        <p class="text-body-secondary small mb-0" id="subtitle">Loading…</p>
+      </div>
+      <div class="d-flex flex-wrap gap-2 align-items-end">
+        <div>
+          <label for="search" class="form-label small mb-1">Search</label>
+          <input type="search" class="form-control form-control-sm" id="search"
+                 placeholder="SKU or name" style="width: 11rem;">
+        </div>
+        <div>
+          <label for="category" class="form-label small mb-1">Category</label>
+          <select class="form-select form-select-sm" id="category" style="width: auto;">
+            <option value="">All categories</option>
+          </select>
+        </div>
+        <div>
+          <label for="warehouse" class="form-label small mb-1">Warehouse</label>
+          <select class="form-select form-select-sm" id="warehouse" style="width: auto;">
+            <option value="">All warehouses</option>
+          </select>
+        </div>
+        <div>
+          <label for="status" class="form-label small mb-1">Status</label>
+          <select class="form-select form-select-sm" id="status" style="width: auto;">
+            <option value="">Any status</option>
+            <option value="STOCKOUT_RISK">Has a location at risk</option>
+            <option value="OVERSTOCK">Has an overstocked location</option>
+            <option value="OK">Has a healthy location</option>
+          </select>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" id="refresh" type="button">Refresh</button>
+      </div>
+    </div>
+
+    <div id="message"></div>
+
+    <!-- The legend states the derivation because these cells are computed here, by allocating
+         demand across locations, and are not verdicts from the ML risk scan. A cell coloured
+         like the alert list would otherwise be read as one. -->
+    <div class="card mb-3">
+      <div class="card-body py-2">
+        <div class="d-flex flex-wrap align-items-center gap-3" id="legend"></div>
+        <p class="small text-body-secondary mb-0 mt-2">
+          Cover per cell is the SKU’s average daily demand over the last 90 days, split evenly
+          across its stocking locations. Below lead time plus the review period counts as at risk;
+          above the overstock threshold counts as overstocked. So a cell reads short when it holds
+          less than an equal share of the network’s stock, which assumes the locations serve
+          comparable demand — demand is not recorded per warehouse. This is an allocation estimate
+          computed on this page, not a prediction from the forecasting service, and it can disagree
+          with the alert list.
+        </p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="table-responsive" style="max-height: 70vh;">
+        <table class="table table-sm table-hover align-middle mb-0 heatmap">
+          <caption class="visually-hidden">Stock on hand per product and warehouse</caption>
+          <thead>
+            <tr id="headRow">
+              <th scope="col" class="sticky-col sortable" data-sort="sku">Product</th>
+              <th scope="col" class="sortable" data-sort="category">Category</th>
+              <th scope="col" class="text-end sortable" data-sort="dailyDemand">Demand/day</th>
+              <th scope="col" class="text-end sortable" data-sort="totalOnHand">On hand</th>
+              <th scope="col" class="text-end sortable" data-sort="totalOnOrder">On order</th>
+            </tr>
+          </thead>
+          <tbody id="gridBody">
+            <tr><td colspan="5" class="text-center text-body-secondary py-4">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <span class="small text-body-secondary" id="gridCount"></span>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-secondary" id="prevPage" type="button">Previous</button>
+          <button class="btn btn-outline-secondary" id="nextPage" type="button">Next</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="vendor/bootstrap.bundle.min.js"></script>
+  <script type="module" src="js/inventory.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+sku,warehouse,warehouse_name,region,quantity_on_hand,on_order
+WIDGET-001,WH-EAST,East distribution centre,East,180,0
+WIDGET-001,WH-WEST,West distribution centre,West,150,400
+WIDGET-001,WH-CENTRAL,Central hub,Central,70,0
+GADGET-002,WH-EAST,East distribution centre,East,1200,0
+GADGET-002,WH-WEST,West distribution centre,West,900,0
+GADGET-002,WH-CENTRAL,Central hub,Central,600,300
+STAPLE-003,WH-EAST,East distribution centre,East,1500,0
+STAPLE-003,WH-WEST,West distribution centre,West,1100,0
+STAPLE-003,WH-CENTRAL,Central hub,Central,900,0
+SLOWMOVE-004,WH-EAST,East distribution centre,East,70,0
+SLOWMOVE-004,WH-WEST,West distribution centre,West,50,0
+SLOWMOVE-004,WH-CENTRAL,Central hub,Central,40,0
+NEWITEM-005,WH-EAST,East distribution centre,East,4,0
+NEWITEM-005,WH-WEST,West distribution centre,West,2,0
+SPARE-006,WH-EAST,East distribution centre,East,18,0
+SPARE-006,WH-CENTRAL,Central hub,Central,6,0

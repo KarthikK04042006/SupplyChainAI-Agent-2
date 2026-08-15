@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Data upload — Supply Forecast</title>
+  <link rel="stylesheet" href="vendor/bootstrap.min.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="nav"></div>
+
+  <main class="container py-4">
+    <div class="mb-3">
+      <h1 class="h3 mb-0">Data upload</h1>
+      <p class="text-body-secondary small mb-0">
+        CSV, with a header row. Column order does not matter, and re-uploading a file updates the
+        rows it restates rather than duplicating them — so a corrected file can simply be sent again.
+      </p>
+    </div>
+
+    <div id="message"></div>
+
+    <!-- Order matters operationally, not technically: all three are keyed by SKU string, so any
+         of them can be loaded before the catalogue exists. Nothing is discarded for an unknown
+         SKU. What the catalogue unlocks is visibility — the inventory grid lists products, so a
+         stock row without one is stored and unseen, and the product totals the risk scan reads
+         cannot be recomputed until the product exists. Hence the numbering. -->
+    <div class="row g-3">
+      <div class="col-12 col-lg-4">
+        <div class="card h-100" data-upload="products">
+          <div class="card-header">
+            <h2 class="h6 mb-0">1 · Product catalogue</h2>
+          </div>
+          <div class="card-body d-flex flex-column">
+            <p class="small text-body-secondary">
+              Creates or updates products. Only the columns present in the file are written, so a
+              catalogue file will not zero the stock levels an inventory upload established.
+            </p>
+            <p class="small mb-2"><strong>Required:</strong>
+              <code>sku</code>, <code>name</code></p>
+            <p class="small"><strong>Optional:</strong> <code>category</code>,
+              <code>lead_time_days</code>, <code>reorder_point</code>, <code>safety_stock</code>,
+              <code>unit_cost</code>, <code>current_stock</code></p>
+            <div class="drop-zone mt-auto" data-zone="products">
+              <p class="small mb-2">Drop a CSV here, or</p>
+              <input type="file" class="form-control form-control-sm" accept=".csv,text/csv"
+                     data-input="products" aria-label="Product catalogue CSV">
+            </div>
+            <div class="mt-3" data-result="products"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-lg-4">
+        <div class="card h-100" data-upload="inventory">
+          <div class="card-header">
+            <h2 class="h6 mb-0">2 · Inventory levels</h2>
+          </div>
+          <div class="card-body d-flex flex-column">
+            <p class="small text-body-secondary">
+              Per-warehouse stock. Warehouses are created on first sight, and the product-level
+              totals the risk scan reads are recomputed from these rows. A row whose SKU has no
+              product yet is still stored, but stays off the inventory grid until the catalogue
+              lands — so load the catalogue first.
+            </p>
+            <p class="small mb-2"><strong>Required:</strong> <code>sku</code>,
+              <code>warehouse</code>, <code>quantity_on_hand</code></p>
+            <p class="small"><strong>Optional:</strong> <code>on_order</code>,
+              <code>warehouse_name</code>, <code>region</code></p>
+            <div class="drop-zone mt-auto" data-zone="inventory">
+              <p class="small mb-2">Drop a CSV here, or</p>
+              <input type="file" class="form-control form-control-sm" accept=".csv,text/csv"
+                     data-input="inventory" aria-label="Inventory levels CSV">
+            </div>
+            <div class="mt-3" data-result="inventory"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-lg-4">
+        <div class="card h-100" data-upload="demand">
+          <div class="card-header">
+            <h2 class="h6 mb-0">3 · Demand history</h2>
+          </div>
+          <div class="card-body d-flex flex-column">
+            <p class="small text-body-secondary">
+              What the forecasts are fitted on. A row whose SKU and date already exist updates that
+              day's quantity. At least two days per SKU are needed before anything can be forecast.
+            </p>
+            <p class="small mb-2"><strong>Required:</strong> <code>sku</code>, <code>date</code>
+              (<code>yyyy-MM-dd</code>), <code>quantity</code></p>
+            <p class="small">&nbsp;</p>
+            <div class="drop-zone mt-auto" data-zone="demand">
+              <p class="small mb-2">Drop a CSV here, or</p>
+              <input type="file" class="form-control form-control-sm" accept=".csv,text/csv"
+                     data-input="demand" aria-label="Demand history CSV">
+            </div>
+            <div class="mt-3" data-result="demand"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-body">
+        <h2 class="h6">After uploading</h2>
+        <p class="small text-body-secondary mb-2">
+          Forecasts, alerts and the accuracy figure are produced by an inventory scan, not by the
+          upload. Run one once the data is in.
+        </p>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <button class="btn btn-primary btn-sm" id="scan" type="button">Run inventory scan</button>
+          <a class="btn btn-outline-secondary btn-sm" href="overview.html">Back to overview</a>
+          <span class="small text-body-secondary" id="scanNote"></span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="vendor/bootstrap.bundle.min.js"></script>
+  <script type="module" src="js/upload.js"></script>
+</body>
+</html>

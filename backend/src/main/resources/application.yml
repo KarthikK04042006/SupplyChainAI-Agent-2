@@ -1,0 +1,103 @@
+spring:
+  application:
+    name: demand-forecast
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://mysql:3306/demand_forecast?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC}
+    username: ${SPRING_DATASOURCE_USERNAME:supply}
+    password: ${SPRING_DATASOURCE_PASSWORD:supplypass}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      connection-timeout: 10000
+      maximum-pool-size: 10
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+
+server:
+  port: 8080
+
+ml:
+  service:
+    url: ${ML_SERVICE_URL:http://ml-service:8000}
+    connect-timeout: 3000
+    # Model selection runs walk-forward validation over several candidates, so a cold
+    # /forecast is far slower than a warm one. 10s was tripping on real payloads.
+    read-timeout: 60000
+    # Total attempts including the first, so 1 disables retries.
+    max-attempts: 3
+    retry-backoff-ms: 250
+
+security:
+  jwt:
+    # Must be set in any real deployment. Absent, JwtService generates an ephemeral key
+    # and warns: tokens then die on restart and are not valid across instances.
+    secret: ${JWT_SECRET:}
+    expiry-minutes: ${JWT_EXPIRY_MINUTES:60}
+    issuer: demand-forecast
+    # Seeded on first startup only, and only when no admin exists at all. With no password
+    # set, one is generated and logged once.
+    seed-admin-username: ${ADMIN_USERNAME:admin}
+    seed-admin-password: ${ADMIN_PASSWORD:}
+
+inventory:
+  scan:
+    # Risk score (0-100) a SKU must reach before it earns an alert. Below this the ML
+    # service still reports the concern; it just is not worth an operator's attention.
+    risk-threshold: ${SCAN_RISK_THRESHOLD:25}
+    horizon-days: 14
+    # Used only for a product whose own lead time is missing or zero.
+    default-lead-time-days: 7
+    overstock-threshold-days: 60
+    review-period-days: 7
+    auto-resolve: true
+    # Whether the periodic scan runs at all. The on-demand endpoint is unaffected.
+    enabled: ${SCAN_ENABLED:true}
+    # Fixed delay between scheduled scans, as a Spring duration (30s, 15m, 1h, PT1H).
+    interval: ${SCAN_INTERVAL:1h}
+    # Grace period before the first scan, so a cold start finishes wiring up and the ML
+    # service has a chance to become reachable before anything is logged as a failure.
+    initial-delay: ${SCAN_INITIAL_DELAY:2m}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.supply.demandforecast: INFO
+
+---
+spring:
+  config:
+    activate:
+      on-profile: local
+  datasource:
+    url: jdbc:mysql://localhost:3306/demand_forecast?allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC
+  jpa:
+    show-sql: true
+
+ml:
+  service:
+    url: http://localhost:8000
+
+logging:
+  level:
+    com.supply.demandforecast: DEBUG
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+  jpa:
+    show-sql: false
