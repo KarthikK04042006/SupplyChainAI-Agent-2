@@ -100,7 +100,10 @@ body_has() {
 }
 
 login() {
-  local user="$1" pass="$2" out="$TMP/login-$user.json"
+  local user="$1" pass="$2"
+  # Separate statement: `local` is a builtin, so every argument on one line is expanded
+  # before the assignments take effect, and $user would still be unset under `set -u`.
+  local out="$TMP/login-$user.json"
   local status
   status="$(curl -sS -o "$out" -w '%{http_code}' -X POST "$BASE/api/auth/login" \
     -H 'Content-Type: application/json' \
