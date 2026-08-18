@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Logging configuration for the backend.
+
+  One thing this adds over Boot's default: a request-id, printed in [brackets] on every line.
+  RequestIdFilter puts it in the MDC at the very front of the filter chain (see that class), so
+  each log event carries the id of the request that produced it, and the same id is forwarded to
+  the ML service — letting one call be followed across both processes.
+
+  The pattern is deliberately plain rather than ANSI-coloured: these logs are read as often through
+  `grep`/`docker logs` and the end-to-end smoke test as in a terminal, and colour escape codes wrap
+  the id in bytes that break a naive match. Boot's own `logging.level.*` properties still apply on
+  top of this file, so levels stay configured in application.yml.
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!-- `requestId:-` renders empty (not the literal "requestId") for lines with no request in
+         scope, such as startup, so `[]` reads as "no request context here". -->
+    <property name="LOG_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %5p [%X{requestId:-}] [%t] %-40.40logger{39} : %m%n%wEx"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

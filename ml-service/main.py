@@ -9,7 +9,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import settings
+from core.observability import RequestIdMiddleware, configure_logging
 from routers import explain, forecast, health, inventory
+
+# Set up logging before anything else so startup lines carry the configured level and format.
+# Under the uvicorn CLI this runs after uvicorn's own logging setup (the app is imported last),
+# so ours is the configuration that takes effect.
+configure_logging(settings.LOG_LEVEL)
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -28,6 +34,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Request-id tracing. Registered last so it wraps outermost (add_middleware adds inside-out): the
+# context is bound before anything else runs, and every response — including a CORS preflight that
+# CORS would otherwise answer alone — carries the echoed id. See RequestIdMiddleware.
+app.add_middleware(RequestIdMiddleware)
 
 # Register routers
 app.include_router(health.router)

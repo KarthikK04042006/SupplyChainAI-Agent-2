@@ -1,6 +1,7 @@
 package com.supply.demandforecast.config;
 
 import com.supply.demandforecast.client.MlServiceProperties;
+import com.supply.demandforecast.logging.RequestIdClientInterceptor;
 import com.supply.demandforecast.service.InventoryScanProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.client.RestClientCustomizer;
@@ -46,6 +47,7 @@ public class AppConfig {
         return builder
                 .baseUrl(properties.url())
                 .requestFactory(http11RequestFactory(properties))
+                .requestInterceptor(new RequestIdClientInterceptor())
                 .build();
     }
 
