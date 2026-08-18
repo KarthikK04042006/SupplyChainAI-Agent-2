@@ -44,6 +44,12 @@ public class DemandImportService {
     /** Cap on reported errors, so a wholly malformed file cannot exhaust memory. */
     private static final int MAX_REPORTED_ERRORS = 100;
 
+    /**
+     * Cap on data rows processed in one upload, bounding memory and work for a file that is small
+     * on disk but pathologically long. Exceeding it is a 413, not a per-row rejection.
+     */
+    private static final int MAX_ROWS = 50_000;
+
     private final DemandHistoryRepository demandHistoryRepository;
 
     @Transactional
@@ -65,6 +71,10 @@ public class DemandImportService {
             Map<String, String> row;
             while ((row = csv.readMap()) != null) {
                 rowNumber++;
+                if (rowNumber - 1 > MAX_ROWS) {
+                    throw new PayloadTooLargeException(
+                            "CSV exceeds the %,d-row limit".formatted(MAX_ROWS));
+                }
                 try {
                     DemandHistory record = toRecord(row);
                     batch.put(record.getSku() + "|" + record.getDemandDate(), record);

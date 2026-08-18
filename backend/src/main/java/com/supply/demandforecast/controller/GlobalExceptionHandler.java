@@ -7,6 +7,7 @@ import com.supply.demandforecast.service.CsvImportException;
 import com.supply.demandforecast.service.DuplicateUsernameException;
 import com.supply.demandforecast.service.InsufficientHistoryException;
 import com.supply.demandforecast.service.LastAdminException;
+import com.supply.demandforecast.service.PayloadTooLargeException;
 import com.supply.demandforecast.service.ProductNotFoundException;
 import com.supply.demandforecast.service.UserNotFoundException;
 import jakarta.validation.ConstraintViolationException;
@@ -19,6 +20,7 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.util.stream.Collectors;
 
@@ -73,6 +75,34 @@ public class GlobalExceptionHandler {
         ProblemDetail problem =
                 ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
         problem.setTitle("Malformed CSV upload");
+        return problem;
+    }
+
+    /**
+     * An upload past the multipart limit set in {@code application.yml}.
+     *
+     * <p>413, with a fixed detail rather than the framework's own message: that text names the byte
+     * ceiling, an implementation detail the operator cannot act on beyond "send a smaller file".
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ProblemDetail handleMaxUploadSize(MaxUploadSizeExceededException e) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                HttpStatus.PAYLOAD_TOO_LARGE, "Uploaded file exceeds the size limit");
+        problem.setTitle("Upload too large");
+        return problem;
+    }
+
+    /**
+     * A readable upload carrying more rows than an import will take in one call.
+     *
+     * <p>Also 413, not the {@link CsvImportException} 400: the file parsed fine, there was just too
+     * much of it. The detail carries the row cap so the caller knows the bound it crossed.
+     */
+    @ExceptionHandler(PayloadTooLargeException.class)
+    public ProblemDetail handlePayloadTooLarge(PayloadTooLargeException e) {
+        ProblemDetail problem =
+                ProblemDetail.forStatusAndDetail(HttpStatus.PAYLOAD_TOO_LARGE, e.getMessage());
+        problem.setTitle("Upload too large");
         return problem;
     }
 

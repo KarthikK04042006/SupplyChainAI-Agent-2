@@ -17,6 +17,12 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
         format_sql: true
+  servlet:
+    multipart:
+      # A catalogue or stock CSV is kilobytes; megabytes is already far past any real upload.
+      # Past this the request is refused with 413 before the controller runs.
+      max-file-size: 5MB
+      max-request-size: 6MB
 
 server:
   port: 8080
@@ -62,6 +68,16 @@ inventory:
     # Grace period before the first scan, so a cold start finishes wiring up and the ML
     # service has a chance to become reachable before anything is logged as a failure.
     initial-delay: ${SCAN_INITIAL_DELAY:2m}
+
+# Token-bucket guard on the CSV uploads and the on-demand scan — the endpoints that do real write
+# or compute work per call. Generous by design: it stops a runaway loop or a crude flood, not an
+# operator clicking a button. Uploads and the scan are limited separately, per caller.
+ratelimit:
+  enabled: ${RATE_LIMIT_ENABLED:true}
+  # Largest burst one caller may make before it must wait for a refill.
+  capacity: 20
+  # Sustained rate once that burst is spent.
+  refill-per-minute: 20
 
 management:
   endpoints:

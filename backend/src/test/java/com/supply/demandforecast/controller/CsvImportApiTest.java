@@ -199,6 +199,30 @@ class CsvImportApiTest {
                 .andExpect(jsonPath("$.detail").value(containsString("empty")));
     }
 
+    /**
+     * A file past the row cap is a 413, and persists nothing.
+     *
+     * <p>Distinct from a bad-rows file, which is a 200: this one is well-formed but larger than an
+     * import will take in one call, so it is refused whole rather than partly loaded. The empty
+     * repository afterwards is the half that matters — the cap trips before any row is saved.
+     */
+    @Test
+    void rejectsACatalogueBeyondTheRowCapWithoutPersistingAnything() throws Exception {
+        StringBuilder csv = new StringBuilder("sku,name\n");
+        for (int i = 0; i <= 50_000; i++) { // 50,001 data rows — one past the 50,000 cap
+            csv.append("SKU-").append(i).append(",Item ").append(i).append('\n');
+        }
+
+        mockMvc.perform(MockMvcRequestBuilders.multipart("/api/products/import")
+                        .file(csvFile("big.csv", csv.toString()))
+                        .with(users.admin()))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.title").value("Upload too large"))
+                .andExpect(jsonPath("$.detail").value(containsString("row")));
+
+        assertThat(productRepository.findAll()).isEmpty();
+    }
+
     /* Inventory import ----------------------------------------------------- */
 
     /** Warehouses are created from the file, so there is no separate registration step to run. */
