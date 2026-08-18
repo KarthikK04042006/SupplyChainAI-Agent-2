@@ -469,6 +469,144 @@ function reorderMarkup(rec) {
     ${steps}`;
 }
 
+/* What-if panel ------------------------------------------------------------ */
+
+/** Resets the result area to its prompt. Called on every product switch — a result is per-SKU. */
+function resetWhatif() {
+  el('whatifResult').innerHTML =
+    '<p class="text-body-secondary mb-0">Enter a scenario and run it to see the effect on '
+    + 'this product’s recommendation.</p>';
+}
+
+/**
+ * Reads the form into the shock the API expects.
+ *
+ * The demand field is entered as a percent change and converted to the multiplier the backend
+ * takes: +30 becomes ×1.30, −20 becomes ×0.80. An empty demand field means "no demand shock", so
+ * its three fields are omitted together; an empty lead-time field means "keep the product's own".
+ */
+function readShock() {
+  const shock = {};
+
+  const pct = el('wifDemandPct').value.trim();
+  if (pct !== '') {
+    shock.demandMultiplier = 1 + Number(pct) / 100;
+    const start = el('wifWindowStart').value;
+    const days = el('wifWindowDays').value.trim();
+    shock.windowStartDate = start || null;
+    shock.windowDays = days !== '' ? Number(days) : null;
+  }
+
+  const lead = el('wifLeadTime').value.trim();
+  if (lead !== '') {
+    shock.leadTimeDaysOverride = Number(lead);
+  }
+
+  return shock;
+}
+
+function renderWhatifError(text) {
+  el('whatifResult').innerHTML = `<p class="text-warning-emphasis mb-0">${escapeHtml(text)}</p>`;
+}
+
+/**
+ * Runs one scenario.
+ *
+ * The common mistakes are caught here so they answer instantly instead of after a round trip, but
+ * the backend validates the same rules — this is a convenience, not the gate.
+ */
+async function runWhatif() {
+  if (!state.sku) {
+    renderWhatifError('Pick a product first.');
+    return;
+  }
+
+  const shock = readShock();
+
+  if (shock.demandMultiplier === undefined && shock.leadTimeDaysOverride === undefined) {
+    renderWhatifError('Enter a demand change or a lead-time override — or both.');
+    return;
+  }
+  if (shock.demandMultiplier !== undefined) {
+    if (!(shock.demandMultiplier > 0)) {
+      renderWhatifError(
+        'A demand change of −100% or lower would erase all demand — enter more than −100%.');
+      return;
+    }
+    if (!shock.windowStartDate || !shock.windowDays) {
+      renderWhatifError('A demand change needs a start date and a length in days.');
+      return;
+    }
+  }
+
+  const button = el('wifRun');
+  button.disabled = true;
+  el('whatifResult').innerHTML = '<p class="text-body-secondary mb-0">Simulating…</p>';
+
+  try {
+    el('whatifResult').innerHTML = whatifMarkup(await api.simulate(state.sku, shock));
+  } catch (error) {
+    renderWhatifError(describe(error, 'The simulation could not be run.'));
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/**
+ * Baseline and simulated side by side, with the headline deltas called out above them.
+ *
+ * The two recommendations render with the same reorderMarkup() the panel above uses, so a planner
+ * reads them the same way. The deltas are computed here because the point of the panel is the
+ * change, not the two absolute figures.
+ */
+function whatifMarkup(result) {
+  const base = (result.baseline && result.baseline.decision) || {};
+  const sim = (result.simulated && result.simulated.decision) || {};
+
+  const row = (label, a, b) => {
+    const missing = a === null || a === undefined || b === null || b === undefined;
+    return `
+      <div class="d-flex justify-content-between border-bottom py-1">
+        <span class="small text-body-secondary">${escapeHtml(label)}</span>
+        <span class="small fw-semibold">${formatNumber(a, 0)} → ${formatNumber(b, 0)}
+          ${missing ? '' : formatDelta(b - a)}</span>
+      </div>`;
+  };
+
+  return `
+    <div class="mb-3">
+      <h3 class="h6">What changes</h3>
+      ${row('Order quantity', base.order_quantity, sim.order_quantity)}
+      ${row('Reorder point', base.reorder_point, sim.reorder_point)}
+      ${row('Safety stock', base.safety_stock, sim.safety_stock)}
+      <p class="small text-body-secondary mt-2 mb-0">
+        Safety stock is derived from the variability of past demand, so a demand-only shock leaves
+        it unchanged; a lead-time change widens the protection window and moves it.
+      </p>
+    </div>
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <h3 class="h6 text-body-secondary">Baseline</h3>
+        ${reorderMarkup(result.baseline)}
+      </div>
+      <div class="col-lg-6">
+        <h3 class="h6 text-body-secondary">Simulated</h3>
+        ${reorderMarkup(result.simulated)}
+      </div>
+    </div>`;
+}
+
+/** A signed, coloured delta: more to hold or order is red, less is green, no change is muted. */
+function formatDelta(diff) {
+  const rounded = Math.round(diff);
+  if (rounded === 0) {
+    return '<span class="text-body-secondary">±0</span>';
+  }
+  const cls = rounded > 0 ? 'text-danger' : 'text-success';
+  const sign = rounded > 0 ? '+' : '−';
+  return `<span class="${cls}">${sign}${formatNumber(Math.abs(rounded), 0)}</span>`;
+}
+
 /* Explain panel ------------------------------------------------------------ */
 
 async function loadExplain(sku) {
@@ -631,6 +769,7 @@ function loadAll(sku) {
   loadChart(sku);
   loadReorder(sku);
   loadExplain(sku);
+  resetWhatif();
 }
 
 el('product').addEventListener('change', (event) => {
@@ -649,6 +788,12 @@ el('refresh').addEventListener('click', () => {
   if (state.sku) {
     loadAll(state.sku);
   }
+});
+
+// Enter in any field submits, same as the button — the form's submit is the one entry point.
+el('whatifForm').addEventListener('submit', (event) => {
+  event.preventDefault();
+  runWhatif();
 });
 
 let searchTimer = null;

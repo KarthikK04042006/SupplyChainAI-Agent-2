@@ -175,6 +175,12 @@ export const api = {
     return request(`/api/products/${encodeURIComponent(id)}/reorder-recommendation`);
   },
 
+  // The SKU rides in the body, not the path: a scenario is not a resource with a stable URL.
+  // `shock` carries the optional demandMultiplier/windowStartDate/windowDays/leadTimeDaysOverride.
+  simulate(sku, shock) {
+    return request('/api/simulate', { method: 'POST', json: { sku, ...shock } });
+  },
+
   explain(id) {
     return request(`/api/products/${encodeURIComponent(id)}/explain`);
   },

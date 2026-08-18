@@ -145,6 +145,56 @@
           </div>
         </div>
       </div>
+
+      <!-- What-if: perturb the forecast and recompute the reorder recommendation, saving nothing.
+           Baseline and simulated come back from one POST /api/simulate and render with the same
+           reorderMarkup() the panel above uses. -->
+      <div class="col-12">
+        <div class="card">
+          <div class="card-header">
+            <h2 class="h6 mb-0">What-if simulation</h2>
+          </div>
+          <div class="card-body">
+            <p class="small text-body-secondary">
+              Apply a hypothetical shock — a promotion or a supplier delay — and recompute the
+              reorder recommendation. Nothing is saved.
+            </p>
+            <form id="whatifForm" class="row g-3 align-items-end mb-3">
+              <div class="col-6 col-md-3">
+                <label for="wifDemandPct" class="form-label small mb-1">Demand change</label>
+                <div class="input-group input-group-sm">
+                  <input type="number" step="1" class="form-control" id="wifDemandPct"
+                         placeholder="+30">
+                  <span class="input-group-text">%</span>
+                </div>
+              </div>
+              <div class="col-6 col-md-3">
+                <label for="wifWindowStart" class="form-label small mb-1">Starting</label>
+                <input type="date" class="form-control form-control-sm" id="wifWindowStart">
+              </div>
+              <div class="col-6 col-md-2">
+                <label for="wifWindowDays" class="form-label small mb-1">For (days)</label>
+                <input type="number" min="1" max="365" step="1"
+                       class="form-control form-control-sm" id="wifWindowDays" placeholder="14">
+              </div>
+              <div class="col-6 col-md-2">
+                <label for="wifLeadTime" class="form-label small mb-1">Lead time (days)</label>
+                <input type="number" min="1" max="365" step="1"
+                       class="form-control form-control-sm" id="wifLeadTime" placeholder="unchanged">
+              </div>
+              <div class="col-12 col-md-2">
+                <button class="btn btn-sm btn-primary w-100" id="wifRun" type="submit">
+                  Run simulation
+                </button>
+              </div>
+            </form>
+            <div id="whatifResult">
+              <p class="text-body-secondary mb-0">Enter a scenario and run it to see the effect on
+                this product’s recommendation.</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </main>
 

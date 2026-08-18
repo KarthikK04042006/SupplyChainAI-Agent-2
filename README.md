@@ -19,6 +19,25 @@ FastAPI service that does the modelling, behind a role-gated REST API and a smal
                     └──────────────┘
 ```
 
+### Request pipeline
+
+A request crosses these in order, and the order is deliberate:
+
+```
+   request
+     │
+     ▼  RequestIdFilter        reads or mints X-Request-Id, binds it to the log MDC — runs first
+     │                         (HIGHEST_PRECEDENCE) so even auth failures are traceable
+     ▼  Spring Security        authenticates the JWT and resolves the role
+     ▼  RateLimitInterceptor   token bucket per caller on uploads and scan; over budget → 429.
+     │                         A HandlerInterceptor, not a filter, so it runs after auth (the
+     │                         principal is the bucket key) and its 429 flows through the same
+     │                         GlobalExceptionHandler as every other error
+     ▼  controller → service   the work itself
+     ▼  MlServiceClient        copies the id onto the X-Request-Id header of every ML call, so
+                               the ml-service logs that request under the same id
+```
+
 ### Services
 
 | Service | Language | Framework | Port | Responsibilities |
@@ -37,6 +56,40 @@ FastAPI service that does the modelling, behind a role-gated REST API and a smal
   a winner on error, rather than committing to one algorithm up front.
 - **Internal REST.** Service-to-service calls go over the Docker network (`supply-net`) at
   `http://ml-service:8000`.
+- **One request-id, both services.** A request-id filter mints or accepts an `X-Request-Id`, binds
+  it to the log MDC, echoes it on the response, and forwards it to the ML service — so a single
+  call's log lines line up across both processes. Logs are structured plain text carrying it in
+  `[brackets]` on every line, with no log-aggregation dependency required.
+- **Bounded input and request rate.** Uploads are capped by multipart size limits and a per-file
+  row cap (413 past either); the CSV imports and the scan trigger sit behind a dependency-free
+  in-memory token bucket (429 with `Retry-After` past the budget). Both guard against runaway loops
+  and abuse rather than normal use, and the scheduled scan runs in-process so it is unaffected.
+
+## What this adds over the original Streamlit version
+
+The first version was a single Python script with a Streamlit UI (Pandas, NumPy, scikit-learn). It
+forecast demand from historical sales, recommended reorder quantities, flagged shortage and
+overstock conditions, and drew them on an interactive dashboard. It ran locally for one person, read
+its data from CSVs each session, used one fixed forecasting model, and had no persistence, no
+accounts, and no API.
+
+This rebuild keeps every one of those goals and re-shapes them for more than one user and a real
+deployment. The same-named capabilities differ mostly in *how*:
+
+| Concern | Original Streamlit app | This system |
+|---------|------------------------|-------------|
+| Forecasting | One fixed model | Per-request selection across baseline, statistical, and ML candidates, chosen by rolling-origin backtest on error; a short series falls back to a baseline rather than failing |
+| Explainability | — | SHAP per-feature contributions for a forecasted day (`/explain`), when the winning model supports it |
+| Reorder advice | Computed and shown | The same maths, exposed as an endpoint and reused by a what-if panel that recomputes it under a hypothetical demand or lead-time shock, saving nothing |
+| Inventory monitoring | Conditions shown in the dashboard at view time | A scheduled background scan scores risk and opens alerts as records — severity, a resolve workflow, history — not only a live readout |
+| Data | CSVs loaded per session, in memory | MySQL via JPA; CSV import validates and reports per-row rejections, and what it accepts persists |
+| Access | Single user, local | JWT auth with a VIEWER/MANAGER/ADMIN role hierarchy, enforced server-side on every route |
+| Interface | Streamlit script | A documented, role-gated REST API with an RFC-7807 error contract; the dashboard is one client of it |
+| Operability | `streamlit run` | Two services — a stateless FastAPI modeller and a Spring Boot backend that owns the data — on docker-compose, with a request-id traced across both, structured logs, rate and upload-size limits, and a one-command end-to-end smoke test |
+
+The through-line is the same problem — forecast demand, recommend reorders, watch for stockouts and
+overstock — rebuilt as a service others can call and depend on, rather than an app one analyst runs
+on their own machine.
 
 ## Quick start
 
@@ -85,6 +138,7 @@ Failures are translated to problem responses by `GlobalExceptionHandler`.
 | GET | `/api/products/{id}/reorder-recommendation` | VIEWER | Safety stock, reorder point, order quantity |
 | GET | `/api/products/{id}/explain` | VIEWER | Per-feature contributions for a forecasted day |
 | POST | `/api/forecast/{sku}` | VIEWER | Ad-hoc forecast; body optional, defaults applied when omitted |
+| POST | `/api/simulate` | VIEWER | What-if: recompute a reorder recommendation under a demand or lead-time shock, persisting nothing |
 | GET | `/api/inventory/levels` | VIEWER | Stock levels per product and warehouse |
 | GET | `/api/inventory/scan` | VIEWER | Result of the most recent risk scan |
 | GET | `/api/alerts` | VIEWER | Paged alerts, filterable |
@@ -196,8 +250,8 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ### Tests
 
 ```bash
-cd backend && ./mvnw test        # 139 tests
-cd ml-service && pytest tests    # 144 tests, 7 skipped
+cd backend && ./mvnw test        # 164 tests
+cd ml-service && pytest tests    # 150 tests, 7 skipped
 ```
 
 Backend coverage spans the API surface, role gating, CSV import, repositories, ML orchestration
@@ -222,13 +276,22 @@ real rather than merely well-formed, re-checks role gating over HTTP, and confir
 reports its rejected rows. It does not look at a rendered page: layout, charts, and responsive
 behaviour still need a browser. Exits non-zero if any check fails.
 
+For a one-command check that owns the whole stack — build, up, seed, assert, tear down —
+`scripts/smoke-test.sh` brings up docker-compose from a clean volume, waits for health, imports the
+sample data, runs a scan, and asserts open alerts exist and that the forecast and what-if endpoints
+return the right shape. Unlike `verify-dashboard.sh` it starts and stops the stack itself, so it
+suits a CI gate or a pre-release smoke test.
+
 ## Project layout
 
 ```
 ├── docker-compose.yml
 ├── sample-data/            — products, inventory levels, demand history CSVs
 ├── scripts/
-│   └── verify-dashboard.sh — end-to-end check against a running stack
+│   ├── smoke-test.sh       — one-command end-to-end regression check; owns the compose stack
+│   ├── verify-dashboard.sh — end-to-end check against a running stack
+│   ├── mysql-local-setup.sql   — creates the DB and user the `local` profile expects
+│   └── install-docker-to-E.ps1 — Windows helper: installs Docker Desktop off the C: drive
 ├── backend/
 │   ├── Dockerfile
 │   ├── pom.xml
@@ -241,24 +304,27 @@ behaviour still need a browser. Exits non-zero if any check fails.
 │       │   ├── dto/        — request/response records
 │       │   ├── entity/     — Product, Warehouse, DemandHistory, InventoryLevel,
 │       │   │                 Alert, ForecastAccuracy, User
+│       │   ├── logging/    — request-id filter and the ML-client header interceptor
+│       │   ├── ratelimit/  — token bucket, its interceptor, and settings
 │       │   ├── repository/ — Spring Data JPA repositories
 │       │   ├── security/   — JWT filter, token service, user details
 │       │   └── service/    — forecasting, replenishment, scanning, alerts,
 │       │                     CSV import, users, dashboard
 │       ├── main/resources/
-│       │   ├── application.yml, application-local-h2.yml
+│       │   ├── application.yml, application-local-h2.yml, logback-spring.xml
 │       │   └── static/     — dashboard pages, js/, css/, vendored bootstrap + chart.js
-│       └── test/           — 15 test classes
+│       └── test/           — 21 test classes
 └── ml-service/
     ├── Dockerfile
     ├── requirements.txt
     ├── main.py
     ├── core/config.py      — Pydantic settings
+    ├── core/observability.py — request-id middleware and log configuration
     ├── models/schemas.py   — request/response models
     ├── routers/            — health, forecast, inventory, explain
     ├── services/
     │   ├── models/         — baseline, statistical, and ML forecasters
     │   └── ...             — features, seasonality, anomalies, backtest,
     │                         batch, explain, forecasting, inventory
-    └── tests/              — 7 test modules
+    └── tests/              — 8 test modules
 ```

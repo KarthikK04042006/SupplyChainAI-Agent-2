@@ -105,6 +105,13 @@ public class SecurityConfig {
                         // VIEWER and up: reads. A forecast is a GET, so it lands here.
                         .requestMatchers(HttpMethod.GET, "/api/**").hasRole(Role.VIEWER.name())
 
+                        // A what-if simulation is a POST because the scenario travels in the body,
+                        // but it reads like any other view: it persists nothing and a VIEWER may
+                        // run it. Listed explicitly because, as a POST, it would otherwise fall
+                        // past the GET rule above straight into the denyAll() below.
+                        .requestMatchers(HttpMethod.POST, "/api/simulate")
+                                .hasRole(Role.VIEWER.name())
+
                         // Any /api write not matched above is one this map has not
                         // considered. Denying by default means adding an endpoint cannot
                         // silently expose it — it fails closed until a rule is written.
