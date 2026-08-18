@@ -27,6 +27,12 @@ inventory:
     enabled: false
     risk-threshold: 25.0
 
+ratelimit:
+  # Off in the shared context: a singleton limiter's buckets persist across test methods, so a
+  # class doing many uploads as one principal would trip a global limit meant for production.
+  # RateLimitApiTest turns it back on with its own low limits, in a context of its own.
+  enabled: false
+
 security:
   jwt:
     # Fixed so tokens are reproducible across contexts within a run. Test-only value.

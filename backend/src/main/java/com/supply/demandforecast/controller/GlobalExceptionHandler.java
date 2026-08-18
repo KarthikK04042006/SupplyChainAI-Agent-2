@@ -1,6 +1,7 @@
 package com.supply.demandforecast.controller;
 
 import com.supply.demandforecast.client.MlServiceException;
+import com.supply.demandforecast.ratelimit.RateLimitExceededException;
 import com.supply.demandforecast.service.AlertAlreadyResolvedException;
 import com.supply.demandforecast.service.AlertNotFoundException;
 import com.supply.demandforecast.service.CsvImportException;
@@ -13,8 +14,10 @@ import com.supply.demandforecast.service.UserNotFoundException;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Path;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
@@ -104,6 +107,26 @@ public class GlobalExceptionHandler {
                 ProblemDetail.forStatusAndDetail(HttpStatus.PAYLOAD_TOO_LARGE, e.getMessage());
         problem.setTitle("Upload too large");
         return problem;
+    }
+
+    /**
+     * A caller over the request budget for a rate-limited endpoint.
+     *
+     * <p>429 with a {@code Retry-After}, which is why this returns a {@code ResponseEntity} and not
+     * a bare {@link ProblemDetail}: the header is the machine-readable half of the same answer the
+     * body states in prose. The seconds are taken off the exception, already worked out by the
+     * limiter, and repeated as a property so a JSON-only client need not parse the header.
+     */
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ProblemDetail> handleRateLimitExceeded(RateLimitExceededException e) {
+        ProblemDetail problem =
+                ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, e.getMessage());
+        problem.setTitle("Too many requests");
+        problem.setProperty("retryAfterSeconds", e.getRetryAfterSeconds());
+
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(e.getRetryAfterSeconds()))
+                .body(problem);
     }
 
     /**

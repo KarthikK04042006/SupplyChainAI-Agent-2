@@ -2,6 +2,7 @@ package com.supply.demandforecast.config;
 
 import com.supply.demandforecast.client.MlServiceProperties;
 import com.supply.demandforecast.logging.RequestIdClientInterceptor;
+import com.supply.demandforecast.ratelimit.RateLimitProperties;
 import com.supply.demandforecast.service.InventoryScanProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.client.RestClientCustomizer;
@@ -20,7 +21,8 @@ import java.time.Duration;
  * {@code client/} classes to reach the ML service over the internal network.
  */
 @Configuration
-@EnableConfigurationProperties({MlServiceProperties.class, InventoryScanProperties.class})
+@EnableConfigurationProperties({MlServiceProperties.class, InventoryScanProperties.class,
+        RateLimitProperties.class})
 public class AppConfig {
 
     /**
