@@ -255,13 +255,14 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ### Tests
 
 ```bash
-cd backend && ./mvnw test        # 169 tests
+cd backend && ./mvnw test        # 181 tests
 cd ml-service && pytest tests    # 151 tests, 7 skipped
 ```
 
 Backend coverage spans the API surface, role gating, CSV import, repositories, ML orchestration
 against a stubbed service, the ML client's own status and retry handling against stubbed HTTP
-(`MlServiceClientTest`), a full import-to-alert loop (`FullLoopTest`), and a contract test
+(`MlServiceClientTest`), user administration including the last-admin guard
+(`UserAdministrationApiTest`), a full import-to-alert loop (`FullLoopTest`), and a contract test
 pinning the ML request and response shapes (`MlContractTest`). The ML suite covers models,
 selection, backtesting, seasonality, anomalies, batching, inventory maths, and explainability.
 Skips are conditional on optional dependencies such as Prophet.
@@ -318,7 +319,7 @@ suits a CI gate or a pre-release smoke test.
 │       ├── main/resources/
 │       │   ├── application.yml, application-local-h2.yml, logback-spring.xml
 │       │   └── static/     — dashboard pages, js/, css/, vendored bootstrap + chart.js
-│       └── test/           — 21 test classes
+│       └── test/           — 22 test classes
 └── ml-service/
     ├── Dockerfile
     ├── requirements.txt

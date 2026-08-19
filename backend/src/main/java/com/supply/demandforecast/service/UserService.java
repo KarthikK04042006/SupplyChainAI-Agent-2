@@ -49,7 +49,7 @@ public class UserService {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new UserNotFoundException(id));
 
-        if (user.getRole() == Role.ADMIN && role != Role.ADMIN && isLastAdmin()) {
+        if (role != Role.ADMIN && wouldRemoveTheLastEnabledAdmin(user)) {
             throw new LastAdminException();
         }
 
@@ -68,7 +68,7 @@ public class UserService {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new UserNotFoundException(id));
 
-        if (!enabled && user.getRole() == Role.ADMIN && isLastAdmin()) {
+        if (!enabled && wouldRemoveTheLastEnabledAdmin(user)) {
             throw new LastAdminException();
         }
 
@@ -78,14 +78,23 @@ public class UserService {
     }
 
     /**
-     * Whether exactly one enabled admin is left.
+     * Whether demoting or disabling this user would leave nobody able to administer accounts.
      *
-     * <p>Guards the two operations that could otherwise lock everyone out of user
-     * management, which no API call could then undo.
+     * <p>Guards the two operations that could otherwise lock everyone out of user management,
+     * which no API call could then undo.
+     *
+     * <p>The question is asked about <em>this user</em>, not about the admin population in
+     * general. Someone who is not currently an enabled admin is not holding the door open, so
+     * removing their admin role cannot be what closes it: a <em>disabled</em> admin account is
+     * already unable to log in, and demoting or re-disabling it changes nothing about who can.
+     * Testing only "is there at most one enabled admin" refused those operations too, and did it
+     * while reporting "cannot demote or disable the last enabled admin" — a statement that was
+     * simply untrue when another enabled admin was sitting right there.
      */
-    private boolean isLastAdmin() {
-        return userRepository.findAll().stream()
-                .filter(u -> u.getRole() == Role.ADMIN && u.isEnabled())
-                .count() <= 1;
+    private boolean wouldRemoveTheLastEnabledAdmin(User user) {
+        if (user.getRole() != Role.ADMIN || !user.isEnabled()) {
+            return false;
+        }
+        return userRepository.countByRoleAndEnabledTrue(Role.ADMIN) <= 1;
     }
 }
