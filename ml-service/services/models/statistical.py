@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import functools
 import logging
-import os
+import threading
 import warnings
 
 import numpy as np
@@ -213,24 +213,43 @@ def _sigma_from_resid(fit) -> float:
 
 
 class _suppressed_stan_logs:
-    """Silence cmdstanpy's per-fit INFO logging.
+    """Silence cmdstanpy's and Prophet's per-fit INFO logging.
 
-    Prophet logs several lines to stdout for every single fit. In a 500-SKU batch
-    that is thousands of lines of noise, so it is suppressed for the duration of
-    the fit and restored afterwards.
+    Prophet emits several INFO lines through the logging module for every single fit.
+    In a 500-SKU batch that is thousands of lines of noise, so the levels are raised
+    for the duration of the fit and restored afterwards.
+
+    Logger levels are process-global and ``services.batch`` fits up to eight SKUs at
+    once, so entries are reference-counted under a lock. Saving and restoring per
+    entry instead let a second thread record the *already-suppressed* level as the one
+    to put back: the first thread's exit would restore the real level and the second's
+    would immediately re-pin WARNING, leaving both loggers silenced for the life of the
+    process from the first concurrent batch onwards.
     """
 
+    _lock = threading.Lock()
+    _depth = 0
+    _saved: dict[str, int] = {}
+
+    #: Both loggers Prophet fits chatter through.
+    LOGGERS = ("cmdstanpy", "prophet")
+
     def __enter__(self):
-        self._loggers = {}
-        for name in ("cmdstanpy", "prophet"):
-            logger_obj = logging.getLogger(name)
-            self._loggers[name] = logger_obj.level
-            logger_obj.setLevel(logging.WARNING)
-        self._devnull = open(os.devnull, "w")
+        with _suppressed_stan_logs._lock:
+            if _suppressed_stan_logs._depth == 0:
+                _suppressed_stan_logs._saved = {
+                    name: logging.getLogger(name).level for name in self.LOGGERS
+                }
+                for name in self.LOGGERS:
+                    logging.getLogger(name).setLevel(logging.WARNING)
+            _suppressed_stan_logs._depth += 1
         return self
 
     def __exit__(self, *exc_info):
-        for name, level in self._loggers.items():
-            logging.getLogger(name).setLevel(level)
-        self._devnull.close()
+        with _suppressed_stan_logs._lock:
+            _suppressed_stan_logs._depth -= 1
+            if _suppressed_stan_logs._depth == 0:
+                for name, level in _suppressed_stan_logs._saved.items():
+                    logging.getLogger(name).setLevel(level)
+                _suppressed_stan_logs._saved = {}
         return False

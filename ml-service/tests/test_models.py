@@ -7,6 +7,9 @@ return exactly ``horizon`` finite non-negative values, refuse politely via
 never emit a negative sigma.
 """
 
+import logging
+import threading
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -14,7 +17,12 @@ import pytest
 from services.models.base import ForecastModel, ModelUnusableError
 from services.models.baseline import MovingAverageModel, SeasonalNaiveModel
 from services.models.ml import XGBoostModel
-from services.models.statistical import HoltWintersModel, ProphetModel, SarimaModel
+from services.models.statistical import (
+    HoltWintersModel,
+    ProphetModel,
+    SarimaModel,
+    _suppressed_stan_logs,
+)
 
 from conftest import weekday_profile
 
@@ -156,3 +164,51 @@ def test_xgboost_recovers_a_weekly_pattern():
 
     for predicted, actual in zip(prediction.values, data.future):
         assert predicted == pytest.approx(actual, rel=0.25)
+
+
+def test_stan_log_suppression_survives_overlapping_fits():
+    """Prophet's log suppression must not outlive the fits that asked for it.
+
+    ``services.batch`` fits up to eight SKUs at once and logger levels are
+    process-global, so two fits are routinely inside this context manager together.
+    The ordering pinned below — A enters, B enters, A leaves, B leaves — is the one
+    that breaks naive save-and-restore: B records the level A already suppressed, so
+    the last exit re-pins WARNING instead of putting the real level back, and
+    cmdstanpy stays silenced for the rest of the process.
+    """
+    cmdstanpy = logging.getLogger("cmdstanpy")
+    original = cmdstanpy.level
+    cmdstanpy.setLevel(logging.DEBUG)
+
+    a_inside = threading.Event()
+    b_inside = threading.Event()
+    a_left = threading.Event()
+    seen_inside: list[int] = []
+
+    def first():
+        with _suppressed_stan_logs():
+            a_inside.set()
+            b_inside.wait(timeout=5)
+            seen_inside.append(cmdstanpy.level)
+        a_left.set()
+
+    def second():
+        a_inside.wait(timeout=5)  # A is fully inside before B enters
+        with _suppressed_stan_logs():
+            b_inside.set()
+            a_left.wait(timeout=5)
+            # A has already left; suppression must still hold for B's own fit.
+            seen_inside.append(cmdstanpy.level)
+
+    try:
+        threads = [threading.Thread(target=first), threading.Thread(target=second)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+        assert not any(thread.is_alive() for thread in threads), "threads deadlocked"
+
+        assert seen_inside == [logging.WARNING, logging.WARNING]
+        assert cmdstanpy.level == logging.DEBUG
+    finally:
+        cmdstanpy.setLevel(original)
