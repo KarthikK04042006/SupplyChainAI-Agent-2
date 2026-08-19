@@ -35,7 +35,7 @@ from models.schemas import (
 
 from .anomalies import build_warnings, detect_anomalies
 from .backtest import backtest_model, build_folds
-from .models.base import ForecastModel, ModelUnusableError, Prediction
+from .models.base import ForecastModel, Prediction
 from .models.baseline import MovingAverageModel, SeasonalNaiveModel
 from .models.ml import XGBoostModel
 from .models.statistical import HoltWintersModel, ProphetModel, SarimaModel
@@ -78,23 +78,29 @@ def forecast_demand(request: ForecastRequest) -> ForecastResponse:
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        prediction = _fit_winner(winner, series, request.horizon_days, seasonal_periods)
+        prediction, producer = _fit_winner(
+            winner, series, request.horizon_days, seasonal_periods
+        )
+
+    refit_warnings: list[ForecastWarning] = []
+    if producer.name != winner.name:
+        reason, refit_warnings = _refit_fallback_report(winner, producer, reason)
 
     logger.info(
         "Forecast for %s: model=%s observations=%d horizon=%d folds=%d seasonal=%s",
-        request.sku, winner.name, len(series), request.horizon_days, len(folds), seasonal,
+        request.sku, producer.name, len(series), request.horizon_days, len(folds), seasonal,
     )
 
     return ForecastResponse(
         sku=request.sku,
-        selected_model=winner.name,
+        selected_model=producer.name,
         selection_reason=reason,
         granularity=request.granularity,
         observations=len(series),
         seasonality_detected=seasonal,
         scores=ranked,
         points=_to_points(series, prediction, request),
-        warnings=anomaly_warnings,
+        warnings=anomaly_warnings + refit_warnings,
         anomalies=anomalies,
     )
 
@@ -200,20 +206,61 @@ def _pick_winner(
 
 def _fit_winner(
     model: ForecastModel, series: pd.Series, horizon: int, seasonal_periods: int
-) -> Prediction:
-    """Refit the winning model on the full history.
+) -> tuple[Prediction, ForecastModel]:
+    """Refit the winning model on the full history, saying which model produced it.
 
     Backtesting deliberately withholds the most recent days; the forecast the caller
-    receives should use them. If the refit fails despite the model having fitted
-    during backtesting, the baseline takes over rather than failing the request.
+    receives should use them. A model can fit on a shorter training fold and still
+    fail on the whole series — statsmodels convergence is not monotone in sample size
+    — so the baseline takes over rather than failing the request.
+
+    The second element is the model the returned prediction actually came from. It
+    differs from ``model`` exactly when the refit fell back, and the caller reports
+    that one: a fallback carrying the winner's name is indistinguishable from a
+    successful refit in the response.
     """
     try:
-        return model.fit_predict(series, horizon, seasonal_periods)
-    except (ModelUnusableError, Exception) as exc:  # noqa: BLE001
+        return model.fit_predict(series, horizon, seasonal_periods), model
+    except Exception as exc:  # noqa: BLE001 - any refit failure falls back
         logger.warning(
             "Winner %s failed to refit on full history, using baseline: %s", model.name, exc
         )
-        return MovingAverageModel(window=7).fit_predict(series, horizon, seasonal_periods)
+        fallback = MovingAverageModel(window=7)
+        return fallback.fit_predict(series, horizon, seasonal_periods), fallback
+
+
+def _refit_fallback_report(
+    winner: ForecastModel, producer: ForecastModel, backtest_reason: str
+) -> tuple[str, list[ForecastWarning]]:
+    """Restate the selection when the backtest winner could not be refitted.
+
+    ``selected_model`` names the model that produced the points, not the one that won
+    backtesting, because everything downstream treats those as the same thing. The
+    backend stores it as the model a persisted accuracy row describes, the dashboard
+    highlights that row in the candidate table and badges it, and ``/explain`` refuses
+    unless it reads ``xgboost``. Naming an unfitted winner would therefore file a
+    moving average's error under a model that produced none of these numbers, and
+    would offer SHAP contributions for a fit the caller never received — the exact
+    mismatch that endpoint's 422 exists to prevent.
+
+    The winner still appears in ``scores`` with the error that won it, so the attempt
+    stays auditable. The warning is what keeps the substitution from being silent:
+    a fallback forecast is not wrong, but it is weaker than the score implies.
+    """
+    reason = (
+        f"{winner.name} won backtesting ({backtest_reason}) but could not be refitted on "
+        f"the full history; the {producer.name} baseline produced these points instead"
+    )
+    warning = ForecastWarning(
+        code="model_refit_failed",
+        message=(
+            f"{winner.name} scored best in backtesting but failed when refitted on the "
+            f"complete history, so this forecast comes from the {producer.name} baseline. "
+            f"Treat it as a fallback rather than the selected model's output."
+        ),
+        severity=Severity.HIGH,
+    )
+    return reason, [warning]
 
 
 def _sparse_history_forecast(

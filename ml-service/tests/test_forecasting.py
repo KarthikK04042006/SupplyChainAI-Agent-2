@@ -8,12 +8,16 @@ individual candidate models.
 
 from datetime import date, timedelta
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
 from main import app
 from models.schemas import DemandPoint, ForecastRequest
+from services import forecasting
 from services.forecasting import forecast_demand
+from services.models.base import ForecastModel, ModelUnusableError, Prediction
+from services.models.baseline import MovingAverageModel
 
 from conftest import START, mape, sinusoidal, weekday_profile
 
@@ -98,6 +102,69 @@ def test_scores_are_best_first():
 
     ranked = [s.mape for s in response.scores if s.fitted and s.mape is not None]
     assert ranked == sorted(ranked)
+
+
+# --- a winner that cannot be refitted --------------------------------------
+
+
+class WinsBacktestThenFailsRefit(ForecastModel):
+    """Wins selection outright, then fails when refitted on the full history.
+
+    Contrived deliberately. A model has to *win* before the refit path is reachable
+    at all, so this one is handed the true series and reads the holdout off it during
+    backtesting, scoring a perfect 0% MAPE. It then raises on any series as long as
+    the whole history — which is exactly the fold-fits-but-full-fit-fails case that
+    happens for real when statsmodels converges on a 60-day training fold and not on
+    the 80-day series.
+    """
+
+    name = "wins_then_fails"
+    min_observations = 1
+
+    def __init__(self, truth: pd.Series) -> None:
+        self.truth = truth
+
+    def fit_predict(self, series, horizon, seasonal_periods):
+        if len(series) >= len(self.truth):
+            raise ModelUnusableError("refit on the full history failed")
+        holdout = self.truth.to_numpy(dtype=float)[len(series): len(series) + horizon]
+        return Prediction(values=holdout, sigma=0.0)
+
+
+def test_a_winner_that_fails_to_refit_is_not_reported_as_the_model_used(monkeypatch):
+    """The response must name the model that produced the points.
+
+    Everything downstream reads ``selected_model`` as the model behind the numbers:
+    the backend files the persisted accuracy row under it, the dashboard highlights
+    and badges that candidate, and ``/explain`` only agrees to run when it says
+    ``xgboost``. Reporting a winner whose refit failed would file a moving average's
+    forecast under a model that produced none of it.
+    """
+    baseline = MovingAverageModel(window=7)
+    monkeypatch.setattr(
+        forecasting,
+        "_build_candidates",
+        lambda series, seasonal, seasonal_periods, req: [
+            WinsBacktestThenFailsRefit(series),
+            baseline,
+        ],
+    )
+
+    response = forecast_demand(request(sinusoidal(90, noise=2.0).quantities))
+
+    # It did win selection, and that stays on the record so the attempt is auditable.
+    scores = {score.model: score for score in response.scores}
+    assert scores["wins_then_fails"].fitted
+    assert scores["wins_then_fails"].mape == 0.0
+
+    # But it produced none of the returned points, so it is not what is reported.
+    assert response.selected_model == "moving_average(w=7)"
+    assert response.selected_model in scores
+    assert "could not be refitted" in response.selection_reason
+
+    # And the substitution is surfaced rather than left in a server-side log line.
+    codes = {warning.code for warning in response.warnings}
+    assert "model_refit_failed" in codes
 
 
 # --- accuracy against ground truth -----------------------------------------
