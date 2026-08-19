@@ -18,11 +18,13 @@ import java.util.HexFormat;
 /**
  * Issues and validates the bearer tokens used for authentication.
  *
- * <p>The token carries the username as its subject and the role as a {@code role} claim,
- * which is what lets authorization run without a database read on every request. The
- * trade-off is that a role change does not take effect until the current token expires;
- * with a one-hour default that window is acceptable, and shortening
- * {@code security.jwt.expiry-minutes} narrows it further.
+ * <p>The token carries the username as its subject and the role as a {@code role} claim. The
+ * subject is the part that matters on an authenticated request: {@link
+ * JwtAuthenticationFilter} verifies the signature here and then reads the account's current
+ * role and enabled flag from the database, so a disabled account stops working immediately
+ * rather than at expiry. The claim is retained because it describes the role at issue time
+ * and the login response reports it, but it is not what authorization is decided on — a token
+ * is proof of identity, not a standing grant of the privileges it was minted with.
  */
 @Slf4j
 @Service

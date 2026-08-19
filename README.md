@@ -60,6 +60,11 @@ A request crosses these in order, and the order is deliberate:
   it to the log MDC, echoes it on the response, and forwards it to the ML service — so a single
   call's log lines line up across both processes. Logs are structured plain text carrying it in
   `[brackets]` on every line, with no log-aggregation dependency required.
+- **Tokens prove identity, not privilege.** A bearer token's signature is verified on every
+  request, and then the account is re-read from the database: a disabled, deleted, or demoted
+  user is refused on their next call rather than when their token happens to expire. That costs
+  one indexed lookup per request and is what makes `PATCH /api/users/{id}/enabled` a revocation
+  instead of a note for the next login.
 - **Bounded input and request rate.** Uploads are capped by multipart size limits and a per-file
   row cap (413 past either); the CSV imports and the scan trigger sit behind a dependency-free
   in-memory token bucket (429 with `Retry-After` past the budget). Both guard against runaway loops
@@ -250,7 +255,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ### Tests
 
 ```bash
-cd backend && ./mvnw test        # 164 tests
+cd backend && ./mvnw test        # 167 tests
 cd ml-service && pytest tests    # 151 tests, 7 skipped
 ```
 

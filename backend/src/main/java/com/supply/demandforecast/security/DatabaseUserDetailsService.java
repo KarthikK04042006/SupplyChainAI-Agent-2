@@ -15,9 +15,9 @@ import java.util.List;
  * Looks users up for authentication.
  *
  * <p>Used by the login flow, where the password actually has to be checked. Authenticated
- * requests carrying a valid token do not come through here — {@link
- * JwtAuthenticationFilter} builds their principal from the token's claims instead, which
- * keeps a database read off the hot path.
+ * requests carrying a valid token do not come through here — {@link JwtAuthenticationFilter}
+ * reads the account directly instead, because it needs the entity's {@code enabled} flag and
+ * role rather than a {@code UserDetails} built around a password it will never verify.
  */
 @Service
 @RequiredArgsConstructor

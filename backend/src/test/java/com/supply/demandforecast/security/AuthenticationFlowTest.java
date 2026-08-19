@@ -216,6 +216,79 @@ class AuthenticationFlowTest {
                 .andExpect(status().isForbidden());
     }
 
+    /**
+     * Disabling an account takes effect on the next request, not at token expiry.
+     *
+     * <p>This is the case the filter's database lookup exists for, and it regressed once:
+     * the authority was built from the token's own {@code role} claim with no read at all,
+     * so a token minted before the account was disabled kept working for the rest of its
+     * hour. The login endpoint refused the user — {@link
+     * #disabledAccountCannotLogInEvenWithTheRightPassword} covers that — while every request
+     * bearing the already-issued token sailed through, which is the half that matters: an
+     * operator revoking access does not have the old token to throw away.
+     *
+     * <p>The token is taken before disabling and deliberately reused afterwards. Asking for
+     * a fresh one would only re-test the login path.
+     */
+    @Test
+    void disablingAnAccountRevokesItsAlreadyIssuedToken() throws Exception {
+        String token = tokenFor("manager");
+
+        // Valid before: this is the same token, so the assertion below cannot pass for the
+        // trivial reason that it never worked.
+        mockMvc.perform(get("/api/auth/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        User manager = userRepository.findByUsername("manager").orElseThrow();
+        manager.setEnabled(false);
+        userRepository.save(manager);
+
+        mockMvc.perform(get("/api/auth/me").header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * Deleting an account revokes its token too.
+     *
+     * <p>The project prefers disabling to deletion, so this is the unlikely path — but a
+     * token whose subject no longer exists must not authenticate on the strength of its
+     * signature alone. Left unauthenticated rather than 500: a missing row is a refusal,
+     * not a server fault.
+     */
+    @Test
+    void aTokenForADeletedAccountNoLongerAuthenticates() throws Exception {
+        String token = tokenFor("viewer");
+
+        userRepository.delete(userRepository.findByUsername("viewer").orElseThrow());
+
+        mockMvc.perform(get("/api/products").header("Authorization", "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * A demotion applies to the token the user already holds.
+     *
+     * <p>Falls out of reading the role from the database rather than the claim, and is worth
+     * pinning separately: privilege that outlives its revocation is the same defect as access
+     * that does, and a token minted as ADMIN must not keep opening ADMIN routes.
+     */
+    @Test
+    void demotingAnAccountAppliesToItsAlreadyIssuedToken() throws Exception {
+        String token = tokenFor("boss");
+
+        mockMvc.perform(get("/api/users").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk());
+
+        User boss = userRepository.findByUsername("boss").orElseThrow();
+        // A second admin, so demoting this one is not refused for being the last.
+        save("other-admin", Role.ADMIN);
+        boss.setRole(Role.VIEWER);
+        userRepository.save(boss);
+
+        mockMvc.perform(get("/api/users").header("Authorization", "Bearer " + token))
+                .andExpect(status().isForbidden());
+    }
+
     private String tokenFor(String username) throws Exception {
         String body = mockMvc.perform(login(username, PASSWORD))
                 .andExpect(status().isOk())
