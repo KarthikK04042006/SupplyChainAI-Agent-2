@@ -58,6 +58,17 @@ public class InventoryScanService {
     /** Username recorded on alerts the scan closes itself. */
     private static final String SYSTEM_ACTOR = "system:scan";
 
+    /**
+     * Joins SKU and alert type into the key identifying one flagged condition in this scan.
+     *
+     * <p>A NUL cannot appear in either field, so the pair cannot collide with a different pair
+     * that happens to concatenate the same way. Written as the escape {@code '\0'} rather than
+     * the literal byte: an embedded NUL makes every tool that sniffs content — {@code git diff}
+     * and {@code grep} included — treat this source file as binary and skip it. The key is only
+     * ever used for lookup and never split apart.
+     */
+    private static final char KEY_SEPARATOR = '\0';
+
     private final ProductRepository productRepository;
     private final DemandHistoryRepository demandHistoryRepository;
     private final AlertRepository alertRepository;
@@ -285,7 +296,7 @@ public class InventoryScanService {
     }
 
     private static String alertKey(String sku, AlertType type) {
-        return sku + " " + type;
+        return sku + KEY_SEPARATOR + type;
     }
 
     /** The predicted daily quantities, which is all the risk scan needs from a forecast. */
