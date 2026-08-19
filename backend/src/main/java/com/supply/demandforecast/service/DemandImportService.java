@@ -41,7 +41,12 @@ public class DemandImportService {
     private static final String COL_SKU = "sku";
     private static final String COL_DATE = "date";
     private static final String COL_QUANTITY = "quantity";
-    /** Cap on reported errors, so a wholly malformed file cannot exhaust memory. */
+    /**
+     * Cap on the per-row messages carried back, so a wholly malformed file cannot exhaust memory.
+     *
+     * <p>Caps the list only. The rejected <em>count</em> is tallied separately and reported in
+     * full, so a caller can tell "100 bad rows" from "the first 100 of 4,000".
+     */
     private static final int MAX_REPORTED_ERRORS = 100;
 
     /**
@@ -64,6 +69,7 @@ public class DemandImportService {
         Map<String, DemandHistory> batch = new HashMap<>();
         int rowNumber = 1;
         int parsed = 0;
+        int rejected = 0;
 
         try (Reader reader = new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8);
              CSVReaderHeaderAware csv = new CSVReaderHeaderAware(reader)) {
@@ -80,6 +86,8 @@ public class DemandImportService {
                     batch.put(record.getSku() + "|" + record.getDemandDate(), record);
                     parsed++;
                 } catch (IllegalArgumentException | DateTimeParseException e) {
+                    // Counted always, listed only up to the cap.
+                    rejected++;
                     if (errors.size() < MAX_REPORTED_ERRORS) {
                         errors.add("Row %d: %s".formatted(rowNumber, e.getMessage()));
                     }
@@ -93,9 +101,9 @@ public class DemandImportService {
         int inserted = batch.size() - updated;
 
         log.info("CSV import: {} rows parsed, {} inserted, {} updated, {} rejected",
-                parsed, inserted, updated, errors.size());
+                parsed, inserted, updated, rejected);
 
-        return new ImportResult(parsed, inserted, updated, errors.size(), errors);
+        return new ImportResult(parsed, inserted, updated, rejected, errors);
     }
 
     /** Upserts the batch, returning how many rows updated an existing day. */

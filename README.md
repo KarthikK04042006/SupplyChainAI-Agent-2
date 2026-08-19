@@ -255,7 +255,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ### Tests
 
 ```bash
-cd backend && ./mvnw test        # 167 tests
+cd backend && ./mvnw test        # 169 tests
 cd ml-service && pytest tests    # 151 tests, 7 skipped
 ```
 

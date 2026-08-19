@@ -375,6 +375,53 @@ class CsvImportApiTest {
                 .andExpect(jsonPath("$.title").value("Malformed CSV upload"));
     }
 
+    /* Rejection counting -------------------------------------------------- */
+
+    /**
+     * Past the 100-message cap, {@code rejected} still counts the whole file.
+     *
+     * <p>Asserted over HTTP for both importers because this is a response-contract question, and
+     * because the count and the list were the same number in all three importers: {@code rejected}
+     * was reported as the capped list's size, so 250 bad rows came back as "100 rejected". The
+     * figures then failed to reconcile against {@code rowsParsed}, and an operator reading them
+     * would have concluded 150 rows vanished, or corrected the 100 lines named and been surprised
+     * by the same upload again.
+     *
+     * <p>{@code upload.js} was already written to the documented contract — it renders "the first
+     * N of M rejected rows" when {@code errors.length < rejected} — so the fix also makes a branch
+     * of the dashboard reachable for the first time.
+     */
+    @Test
+    void bothImportsCountEveryRejectedRowPastTheMessageCap() throws Exception {
+        StringBuilder catalogue = new StringBuilder("sku,name,lead_time_days\n");
+        StringBuilder stock = new StringBuilder("sku,warehouse,quantity_on_hand\n");
+        for (int i = 0; i < 250; i++) {
+            catalogue.append("SKU-").append(i).append(",Fractional lead time,7.5\n");
+            stock.append("SKU-").append(i).append(",WH-EAST,-5\n");
+        }
+        catalogue.append("GOOD-1,Sound row,7\n");
+        stock.append("GOOD-1,WH-EAST,40\n");
+
+        products(catalogue.toString())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rejected").value(250))
+                .andExpect(jsonPath("$.errors.length()").value(100))
+                .andExpect(jsonPath("$.rowsParsed").value(1))
+                .andExpect(jsonPath("$.inserted").value(1));
+
+        inventory(stock.toString())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rejected").value(250))
+                .andExpect(jsonPath("$.errors.length()").value(100))
+                .andExpect(jsonPath("$.rowsParsed").value(1))
+                .andExpect(jsonPath("$.inserted").value(1));
+
+        // The one sound row in each file loaded; the flood of bad ones cost it nothing.
+        assertThat(productRepository.findAll()).extracting(Product::getSku)
+                .containsExactly("GOOD-1");
+        assertThat(inventoryLevelRepository.findBySku("GOOD-1")).hasSize(1);
+    }
+
     /* Role gating ---------------------------------------------------------- */
 
     /**

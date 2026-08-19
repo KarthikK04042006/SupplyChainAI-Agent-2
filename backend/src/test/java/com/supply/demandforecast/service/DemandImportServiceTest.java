@@ -120,6 +120,39 @@ class DemandImportServiceTest {
         assertThat(existing.getQuantity()).isEqualTo(42);
     }
 
+    /**
+     * Past the message cap, the count still describes the whole file.
+     *
+     * <p>{@code errors} is capped so a wholly malformed upload cannot exhaust memory, and
+     * {@code rejected} used to be reported as that capped list's size — so 250 bad rows came
+     * back as "100 rejected". The numbers then did not reconcile against {@code rowsParsed},
+     * and an operator reading them would have concluded 150 rows vanished silently, or fixed
+     * the 100 lines named and been surprised by the same upload again.
+     *
+     * <p>The dashboard was already written to the documented contract: {@code upload.js} shows
+     * "the first N of M rejected rows" when the list is shorter than the count, a branch that
+     * could never be reached while the two were the same number.
+     */
+    @Test
+    void countsEveryRejectedRowEvenWhenTheMessageListIsCapped() {
+        noExistingRows();
+        echoSavedRows();
+
+        StringBuilder csv = new StringBuilder("sku,date,quantity\n");
+        for (int i = 0; i < 250; i++) {
+            csv.append("WIDGET-001,not-a-date,5\n");
+        }
+        csv.append("WIDGET-001,2026-07-01,10\n");
+
+        ImportResult result = importCsv(csv.toString());
+
+        assertThat(result.rejected()).isEqualTo(250);
+        assertThat(result.errors()).hasSize(100);
+        assertThat(result.rowsParsed()).isEqualTo(1);
+        // The good row survived the flood of bad ones.
+        assertThat(result.inserted()).isEqualTo(1);
+    }
+
     @Test
     void rejectsEmptyUpload() {
         MockMultipartFile empty =

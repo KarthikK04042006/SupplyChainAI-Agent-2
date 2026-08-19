@@ -49,7 +49,12 @@ public class ProductImportService {
     private static final String COL_UNIT_COST = "unit_cost";
     private static final String COL_CURRENT_STOCK = "current_stock";
 
-    /** Cap on reported errors, so a wholly malformed file cannot exhaust memory. */
+    /**
+     * Cap on the per-row messages carried back, so a wholly malformed file cannot exhaust memory.
+     *
+     * <p>Caps the list only. The rejected <em>count</em> is tallied separately and reported in
+     * full, so a caller can tell "100 bad rows" from "the first 100 of 4,000".
+     */
     private static final int MAX_REPORTED_ERRORS = 100;
 
     /**
@@ -72,6 +77,7 @@ public class ProductImportService {
         Map<String, Map<String, String>> batch = new LinkedHashMap<>();
         int rowNumber = 1;
         int parsed = 0;
+        int rejected = 0;
 
         try (Reader reader = new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8);
              CSVReaderHeaderAware csv = new CSVReaderHeaderAware(reader)) {
@@ -88,6 +94,8 @@ public class ProductImportService {
                     batch.put(CsvValues.required(row, COL_SKU), row);
                     parsed++;
                 } catch (IllegalArgumentException e) {
+                    // Counted always, listed only up to the cap.
+                    rejected++;
                     if (errors.size() < MAX_REPORTED_ERRORS) {
                         errors.add("Row %d: %s".formatted(rowNumber, e.getMessage()));
                     }
@@ -101,9 +109,9 @@ public class ProductImportService {
         int inserted = batch.size() - updated;
 
         log.info("Product import: {} rows parsed, {} inserted, {} updated, {} rejected",
-                parsed, inserted, updated, errors.size());
+                parsed, inserted, updated, rejected);
 
-        return new ImportResult(parsed, inserted, updated, errors.size(), errors);
+        return new ImportResult(parsed, inserted, updated, rejected, errors);
     }
 
     /**
