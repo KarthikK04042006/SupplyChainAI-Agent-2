@@ -527,6 +527,17 @@ def test_per_item_lead_time_overrides_the_batch_default():
     assert local.days_until_stockout == pytest.approx(10.0), "100 units / 10 per day"
 
 
+def test_an_empty_batch_returns_nothing_rather_than_raising():
+    """A caller with no forecastable items gets an empty list.
+
+    The endpoint's schema requires at least one item, so this is unreachable over
+    HTTP — but ``scan_risks`` is a plain function and the guard lives one caller away.
+    It regressed once already: the summary log read the per-item loop variables, which
+    an empty batch never binds, so this raised UnboundLocalError instead of returning.
+    """
+    assert scan_risks([], 7.0, 90.0, 7.0) == []
+
+
 def test_scan_handles_a_mixed_batch():
     """The realistic case: one of each, all classified in a single pass."""
     items = [

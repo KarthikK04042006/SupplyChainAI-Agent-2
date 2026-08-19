@@ -251,7 +251,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 ```bash
 cd backend && ./mvnw test        # 164 tests
-cd ml-service && pytest tests    # 150 tests, 7 skipped
+cd ml-service && pytest tests    # 151 tests, 7 skipped
 ```
 
 Backend coverage spans the API surface, role gating, CSV import, repositories, ML orchestration

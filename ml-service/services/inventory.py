@@ -463,9 +463,13 @@ def scan_risks(
             )
         )
 
+    # Summarised from the batch defaults, not from loop variables. Lead time is per item by
+    # design, so there is no single window to report: the last item's would be logged as if it
+    # described all of them, and an empty batch would leave the names unbound entirely.
     logger.info(
-        "Risk scan: %d item(s) assessed over a %.1f-day window (lead %.1f + review %.1f)",
-        len(assessments), window, lead_time, review,
+        "Risk scan: %d item(s) assessed; batch default window %.1f days "
+        "(lead %.1f + review %.1f), overridden per item where a lead time was supplied",
+        len(assessments), batch_lead_time + review, batch_lead_time, review,
     )
     return assessments
 
