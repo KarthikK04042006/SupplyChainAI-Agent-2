@@ -19,6 +19,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * pin the wire format: if a field is renamed on either side, this fails instead of the
  * mismatch surfacing as a 422 at runtime.
  *
+ * <p>Names are not the whole contract. A field whose <em>meaning</em> changes while its name
+ * holds still breaks callers just as thoroughly and no rename check notices, so
+ * {@code selected_model} is pinned by behaviour too — see
+ * {@link #refitFallbackReportsTheProducingModelNotTheBacktestWinner()}.
+ *
  * <p>The mapper below mirrors what Spring Boot auto-configures — {@code JavaTimeModule}
  * registered, timestamp serialization off.
  */
@@ -145,6 +150,80 @@ class MlContractTest {
         assertThat(response.anomalies()).isEmpty();
         assertThat(response.scores()).isEmpty();
         assertThat(response.points()).isEmpty();
+    }
+
+    /**
+     * A refit fallback must name the model that produced the points.
+     *
+     * <p>The tests above pin field <em>names</em>. This one pins what {@code selected_model}
+     * <em>means</em>, which no rename check can catch: the ML service backtests candidates and
+     * then refits the winner on the full history, and when that refit fails it forecasts with
+     * the moving-average baseline instead. It reports the baseline, not the winner.
+     *
+     * <p>The JSON below is a real response captured from the service for that case, lowercase
+     * {@code severity} and all — not a hand-written approximation of one.
+     *
+     * <p>The last assertion is the one this backend depends on. {@code
+     * ForecastAccuracyRecorder.selectedScore()} looks {@code selected_model} up by name in
+     * {@code scores} to decide which metrics to persist, so the reported model has to <em>be</em>
+     * in that list, and the entry it finds has to be the baseline's own error rather than the
+     * winner's. Were the winner reported here, the recorder would file a flawless 0.00% MAPE
+     * against a forecast the winner never produced, and the dashboard accuracy KPI would read
+     * as a perfect prediction.
+     */
+    @Test
+    void refitFallbackReportsTheProducingModelNotTheBacktestWinner() throws Exception {
+        String json = """
+                {"sku":"WIDGET-001",
+                 "selected_model":"moving_average(w=7)",
+                 "selection_reason":"wins_then_fails won backtesting (lowest backtest MAPE \
+                (0.00%) across 3 walk-forward fold(s)) but could not be refitted on the full \
+                history; the moving_average(w=7) baseline produced these points instead",
+                 "granularity":"daily",
+                 "observations":90,
+                 "seasonality_detected":false,
+                 "scores":[{"model":"wins_then_fails","mape":0.0,"rmse":0.0,"mae":0.0,
+                            "folds":3,"fitted":true,"error":null},
+                           {"model":"moving_average(w=7)","mape":5.584,"rmse":2.362,
+                            "mae":2.206,"folds":3,"fitted":true,"error":null}],
+                 "points":[{"date":"2026-04-01","predicted":39.286,"lower":35.557,
+                            "upper":43.015}],
+                 "warnings":[{"code":"model_refit_failed",
+                              "message":"wins_then_fails scored best in backtesting but failed \
+                when refitted on the complete history, so this forecast comes from the \
+                moving_average(w=7) baseline. Treat it as a fallback rather than the selected \
+                model's output.",
+                              "severity":"high"}],
+                 "anomalies":[]}
+                """;
+
+        ForecastResponse response = mapper.readValue(json, ForecastResponse.class);
+
+        // The producing model is reported; the model that won backtesting is not.
+        assertThat(response.selectedModel()).isEqualTo("moving_average(w=7)");
+        assertThat(response.selectedModel()).isNotEqualTo("wins_then_fails");
+        assertThat(response.selectionReason()).contains("could not be refitted");
+
+        // The substitution arrives as a warning rather than only in the service's own logs,
+        // and at a severity the dashboard renders as more than a note.
+        assertThat(response.warnings()).hasSize(1);
+        assertThat(response.warnings().getFirst().code()).isEqualTo("model_refit_failed");
+        assertThat(response.warnings().getFirst().severity()).isEqualTo(Severity.HIGH);
+
+        // The winner stays in the comparison with the score that won it, so the attempt that
+        // was made and abandoned is still auditable from the response alone.
+        assertThat(response.scores()).extracting(ForecastResponse.ModelScore::model)
+                .containsExactly("wins_then_fails", "moving_average(w=7)");
+
+        // What the accuracy recorder will resolve: present in scores, and carrying the
+        // baseline's error rather than the winner's unreachable 0.00%.
+        assertThat(response.scores())
+                .filteredOn(score -> score.model().equals(response.selectedModel()))
+                .singleElement()
+                .satisfies(score -> {
+                    assertThat(score.mape()).isEqualTo(5.584);
+                    assertThat(score.fitted()).isTrue();
+                });
     }
 
     /**
